@@ -16,7 +16,7 @@ from nerfstudio.utils.scripts import run_command
 
 CONSOLE = Console(width=120)
 
-terminal = open("logs/experiment.log", "a")
+terminal = open("experiment_log.txt", "a")
 writer = {"terminal": terminal, "log": sys.stdout}
 
 
@@ -113,15 +113,15 @@ class ExperimentPipeline:
         render_dir.mkdir(parents=True, exist_ok=True)
         
         # ns-render --load-config outputs/data-images-exp_combined_baseline_2/nerfacto/2023-03-28_112618/config.yml --traj filename --camera-path-filename data/images/exp_combined_baseline_2/camera_paths/2023-03-28_112618.json --output-path renders/data/images/exp_combined_baseline_2/2023-03-28_112618.mp4
-        cmd = f"ns-render --load-config {config_path}"
+        cmd = f"ns-render"
         
         if (interpolate):
             render_path = render_dir / f"{output_name}_interpolate.mp4"
-            cmd += f" --traj interpolate --output-path {render_path}"
+            cmd += f" interpolate --load-config {config_path} --output-path {render_path}"
         else:
             render_path = render_dir / f"{output_name}.mp4"
             camera_path_path = "./camera_paths/camera_path_one_lap.json"
-            cmd += f" --traj filename --camera-path-filename {camera_path_path} --output-path {render_path}"
+            cmd += f" camera-path --load-config {config_path} --camera-path-filename {camera_path_path} --output-path {render_path}"
             
         run_command(cmd, verbose=True)
 
@@ -129,7 +129,7 @@ class ExperimentPipeline:
 if __name__ == "__main__":
     """
     Run this script to process input-data, train and evaluate a model.
-    Example: ./nerf_carla_pipeline.py --model nerfacto --input_data ../carlo/runs/exp_capacity_1 --output_dir ../carlo/runs/exp_capacity_1
+    Example: ./nerf_carla_pipeline.py --model nerfacto --input-data-dir ../carlo/runs/exp_capacity_1 --output_dir ../carlo/runs/exp_capacity_1
     Old Example: ./nerf_pipeline.py --model nerfacto --data_source images --input_data data/videos/hovedbygget/images_old --output_dir data/videos/hovedbygget
     """
     args = tyro.cli(Args)
