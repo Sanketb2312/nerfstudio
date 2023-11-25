@@ -97,7 +97,7 @@ class ExperimentPipeline:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
         output_name = f"{self.model}-{self.experiment_name}-{timestamp}"
-        cmd = f"ns-eval --load-config {config} --output-path {self.output_dir}/{output_name}.json"
+        cmd = f"ns-eval --load-config {config} --output-path {self.output_dir}/{output_name}.json --render-output-path {self.output_dir}/eval_images/"
         run_command(cmd, verbose=True)
     
     @my_timer("Render")
