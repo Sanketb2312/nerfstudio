@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,25 +22,16 @@ from typing import Literal, Type
 
 import numpy as np
 import torch
-from rich.progress import Console
 
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import Cameras, CameraType
-from nerfstudio.data.dataparsers.base_dataparser import (
-    DataParser,
-    DataParserConfig,
-    DataparserOutputs,
-)
+from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataParserConfig, DataparserOutputs
 from nerfstudio.data.scene_box import SceneBox
 
 # TODO(1480) use pycolmap instead of colmap_parsing_utils
 # import pycolmap
-from nerfstudio.data.utils.colmap_parsing_utils import (
-    read_cameras_binary,
-    read_images_binary,
-)
-
-CONSOLE = Console(width=120)
+from nerfstudio.data.utils.colmap_parsing_utils import read_cameras_binary, read_images_binary
+from nerfstudio.utils.rich_utils import CONSOLE
 
 
 @dataclass
@@ -79,7 +70,6 @@ class Phototourism(DataParser):
         super().__init__(config=config)
         self.data: Path = config.data
 
-    # pylint: disable=too-many-statements
     def _generate_dataparser_outputs(self, split="train"):
         image_filenames = []
         poses = []

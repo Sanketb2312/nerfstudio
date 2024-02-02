@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,13 +19,10 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from rich.console import Console
-
 from nerfstudio.process_data import process_data_utils
 from nerfstudio.process_data.process_data_utils import CAMERA_MODELS
 from nerfstudio.utils import io
-
-CONSOLE = Console(width=120)
+from nerfstudio.utils.rich_utils import CONSOLE
 
 
 def polycam_to_json(
@@ -134,6 +131,7 @@ def process_images(
         image_dir=image_dir,
         crop_border_pixels=crop_border_pixels,
         verbose=verbose,
+        num_downscales=num_downscales,
     )
     num_frames = len(copied_image_paths)
 
@@ -147,9 +145,6 @@ def process_images(
         )
     else:
         summary_log.append(f"Started with {num_frames} images")
-
-    # Downscale images
-    summary_log.append(process_data_utils.downscale_images(image_dir, num_downscales, verbose=verbose))
 
     # Save json
     if num_frames == 0:
@@ -193,7 +188,11 @@ def process_depth_maps(
 
     # Copy depth images to output directory
     copied_depth_maps_paths = process_data_utils.copy_and_upscale_polycam_depth_maps_list(
-        polycam_depth_maps_filenames, depth_dir=depth_dir, crop_border_pixels=crop_border_pixels, verbose=verbose
+        polycam_depth_maps_filenames,
+        depth_dir=depth_dir,
+        num_downscales=num_downscales,
+        crop_border_pixels=crop_border_pixels,
+        verbose=verbose,
     )
 
     num_processed_depth_maps = len(copied_depth_maps_paths)
@@ -213,12 +212,5 @@ def process_depth_maps(
         )
     else:
         summary_log.append(f"Started with {num_processed_depth_maps} images")
-
-    # Downscale depth maps
-    summary_log.append(
-        process_data_utils.downscale_images(
-            depth_dir, num_downscales, folder_name="depths", nearest_neighbor=True, verbose=verbose
-        )
-    )
 
     return summary_log, polycam_depth_maps_filenames

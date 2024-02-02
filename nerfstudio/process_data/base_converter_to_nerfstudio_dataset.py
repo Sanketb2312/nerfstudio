@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,16 +19,19 @@ Base class to process images or video into a nerfstudio dataset
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass
 class BaseConverterToNerfstudioDataset(ABC):
-    """Base class to process images or video into a nerfstudio dataset"""
+    """Base class to process images or video into a nerfstudio dataset."""
 
     data: Path
     """Path the data, either a video file or a directory of images."""
     output_dir: Path
     """Path to the output directory."""
+    eval_data: Optional[Path] = None
+    """Path the eval data, either a video file or a directory of images. If set to None, the first will be used both for training and eval"""
     verbose: bool = False
     """If True, print extra logging."""
 
@@ -37,7 +40,7 @@ class BaseConverterToNerfstudioDataset(ABC):
         self.image_dir.mkdir(parents=True, exist_ok=True)
 
     @property
-    def image_dir(self) -> Path:  # pylint: disable=missing-function-docstring
+    def image_dir(self) -> Path:
         return self.output_dir / "images"
 
     @abstractmethod

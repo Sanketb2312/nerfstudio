@@ -8,6 +8,7 @@ The viewer is built on [Viser](https://github.com/brentyi/viser/tree/main/viser)
 :titlesonly:
 
 custom_gui
+viewer_control
 local_viewer
 ```
 
@@ -15,7 +16,7 @@ local_viewer
 
 We thank the authors and contributors to the following repos, which we've started, used, and modified for our use-cases.
 
-- [Viser](https://github.com/brentyi/viser/tree/main/viser) - made by [Brent Yi](https://github.com/brentyi)
+- [Viser](https://github.com/brentyi/viser/) - made by [Brent Yi](https://github.com/brentyi)
 - [meshcat-python](https://github.com/rdeits/meshcat-python) - made by [Robin Deits](https://github.com/rdeits)
 - [meshcat](https://github.com/rdeits/meshcat) - made by [Robin Deits](https://github.com/rdeits)
 - [ThreeJS](https://threejs.org/)

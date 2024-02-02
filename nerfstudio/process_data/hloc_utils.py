@@ -5,7 +5,7 @@ and do sparse reconstruction.
 Requires hloc module from : https://github.com/cvg/Hierarchical-Localization
 """
 
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,14 +23,13 @@ import sys
 from pathlib import Path
 from typing import Literal
 
-from rich.console import Console
-
 from nerfstudio.process_data.process_data_utils import CameraModel
+from nerfstudio.utils.rich_utils import CONSOLE
 
 try:
     # TODO(1480) un-hide pycolmap import
     import pycolmap
-    from hloc import (
+    from hloc import (  # type: ignore
         extract_features,
         match_features,
         pairs_from_exhaustive,
@@ -39,17 +38,16 @@ try:
     )
 except ImportError:
     _HAS_HLOC = False
+
 else:
     _HAS_HLOC = True
 
 try:
-    from pixsfm.refine_hloc import PixSfM
+    from pixsfm.refine_hloc import PixSfM  # type: ignore
 except ImportError:
     _HAS_PIXSFM = False
 else:
     _HAS_PIXSFM = True
-
-CONSOLE = Console(width=120)
 
 
 def run_hloc(
@@ -62,7 +60,14 @@ def run_hloc(
         "sift", "superpoint_aachen", "superpoint_max", "superpoint_inloc", "r2d2", "d2net-ss", "sosnet", "disk"
     ] = "superpoint_aachen",
     matcher_type: Literal[
-        "superglue", "superglue-fast", "NN-superpoint", "NN-ratio", "NN-mutual", "adalam"
+        "superglue",
+        "superglue-fast",
+        "NN-superpoint",
+        "NN-ratio",
+        "NN-mutual",
+        "adalam",
+        "disk+lightglue",
+        "superpoint+lightglue",
     ] = "superglue",
     num_matched: int = 50,
     refine_pixsfm: bool = False,
@@ -98,26 +103,24 @@ def run_hloc(
     features = outputs / "features.h5"
     matches = outputs / "matches.h5"
 
-    retrieval_conf = extract_features.confs["netvlad"]
-    feature_conf = extract_features.confs[feature_type]
-    matcher_conf = match_features.confs[matcher_type]
+    retrieval_conf = extract_features.confs["netvlad"]  # type: ignore
+    feature_conf = extract_features.confs[feature_type]  # type: ignore
+    matcher_conf = match_features.confs[matcher_type]  # type: ignore
 
     references = [p.relative_to(image_dir).as_posix() for p in image_dir.iterdir()]
-    extract_features.main(feature_conf, image_dir, image_list=references, feature_path=features)
+    extract_features.main(feature_conf, image_dir, image_list=references, feature_path=features)  # type: ignore
     if matching_method == "exhaustive":
-        pairs_from_exhaustive.main(sfm_pairs, image_list=references)
+        pairs_from_exhaustive.main(sfm_pairs, image_list=references)  # type: ignore
     else:
-        retrieval_path = extract_features.main(retrieval_conf, image_dir, outputs)
+        retrieval_path = extract_features.main(retrieval_conf, image_dir, outputs)  # type: ignore
         if num_matched >= len(references):
             num_matched = len(references)
-        pairs_from_retrieval.main(retrieval_path, sfm_pairs, num_matched=num_matched)
-    match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
+        pairs_from_retrieval.main(retrieval_path, sfm_pairs, num_matched=num_matched)  # type: ignore
+    match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)  # type: ignore
 
-    image_options = pycolmap.ImageReaderOptions(  # pylint: disable=c-extension-no-member
-        camera_model=camera_model.value
-    )
+    image_options = pycolmap.ImageReaderOptions(camera_model=camera_model.value)  # type: ignore
     if refine_pixsfm:
-        sfm = PixSfM(
+        sfm = PixSfM(  # type: ignore
             conf={
                 "dense_features": {"use_cache": True},
                 "KA": {"dense_features": {"use_cache": True}, "max_kps_per_problem": 1000},
@@ -131,20 +134,20 @@ def run_hloc(
             features,
             matches,
             image_list=references,
-            camera_mode=pycolmap.CameraMode.SINGLE,  # pylint: disable=c-extension-no-member
+            camera_mode=pycolmap.CameraMode.SINGLE,  # type: ignore
             image_options=image_options,
             verbose=verbose,
         )
         print("Refined", refined.summary())
 
     else:
-        reconstruction.main(
+        reconstruction.main(  # type: ignore
             sfm_dir,
             image_dir,
             sfm_pairs,
             features,
             matches,
-            camera_mode=pycolmap.CameraMode.SINGLE,  # pylint: disable=c-extension-no-member
+            camera_mode=pycolmap.CameraMode.SINGLE,  # type: ignore
             image_options=image_options,
             verbose=verbose,
         )

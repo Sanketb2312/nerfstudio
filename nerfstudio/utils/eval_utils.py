@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,16 +20,15 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Literal, Optional, Tuple
+from typing import Callable, Literal, Optional, Tuple
 
 import torch
 import yaml
-from rich.console import Console
 
+from nerfstudio.configs.method_configs import all_methods
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.pipelines.base_pipeline import Pipeline
-
-CONSOLE = Console(width=120)
+from nerfstudio.utils.rich_utils import CONSOLE
 
 
 def eval_load_checkpoint(config: TrainerConfig, pipeline: Pipeline) -> Tuple[Path, int]:
@@ -69,6 +68,7 @@ def eval_setup(
     config_path: Path,
     eval_num_rays_per_chunk: Optional[int] = None,
     test_mode: Literal["test", "val", "inference"] = "test",
+    update_config_callback: Optional[Callable[[TrainerConfig], TrainerConfig]] = None,
 ) -> Tuple[TrainerConfig, Pipeline, Path, int]:
     """Shared setup for loading a saved pipeline for evaluation.
 
@@ -79,6 +79,7 @@ def eval_setup(
             'val': loads train/val datasets into memory
             'test': loads train/test dataset into memory
             'inference': does not load any dataset into memory
+        update_config_callback: Callback to update the config before loading the pipeline
 
 
     Returns:
@@ -88,13 +89,16 @@ def eval_setup(
     config = yaml.load(config_path.read_text(), Loader=yaml.Loader)
     assert isinstance(config, TrainerConfig)
 
+    config.pipeline.datamanager._target = all_methods[config.method_name].pipeline.datamanager._target
     if eval_num_rays_per_chunk:
         config.pipeline.model.eval_num_rays_per_chunk = eval_num_rays_per_chunk
+
+    if update_config_callback is not None:
+        config = update_config_callback(config)
 
     # load checkpoints from wherever they were saved
     # TODO: expose the ability to choose an arbitrary checkpoint
     config.load_dir = config.get_checkpoint_dir()
-    config.pipeline.datamanager.eval_image_indices = None
 
     # setup pipeline (which includes the DataManager)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

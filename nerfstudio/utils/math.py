@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,14 +14,21 @@
 
 """ Math Helper Functions """
 
+import itertools
+import math
 from dataclasses import dataclass
 from typing import Literal, Tuple
 
 import torch
-from torchtyping import TensorType
+from jaxtyping import Bool, Float
+from torch import Tensor
+
+from nerfstudio.data.scene_box import OrientedBox
 
 
-def components_from_spherical_harmonics(levels: int, directions: TensorType[..., 3]) -> TensorType[..., "components"]:
+def components_from_spherical_harmonics(
+    levels: int, directions: Float[Tensor, "*batch 3"]
+) -> Float[Tensor, "*batch components"]:
     """
     Returns value for each component of spherical harmonics.
 
@@ -75,12 +82,12 @@ def components_from_spherical_harmonics(levels: int, directions: TensorType[...,
         components[..., 16] = 2.5033429417967046 * x * y * (xx - yy)
         components[..., 17] = 1.7701307697799304 * y * z * (3 * xx - yy)
         components[..., 18] = 0.9461746957575601 * x * y * (7 * zz - 1)
-        components[..., 19] = 0.6690465435572892 * y * (7 * zz - 3)
+        components[..., 19] = 0.6690465435572892 * y * z * (7 * zz - 3)
         components[..., 20] = 0.10578554691520431 * (35 * zz * zz - 30 * zz + 3)
         components[..., 21] = 0.6690465435572892 * x * z * (7 * zz - 3)
         components[..., 22] = 0.47308734787878004 * (xx - yy) * (7 * zz - 1)
         components[..., 23] = 1.7701307697799304 * x * z * (xx - 3 * yy)
-        components[..., 24] = 0.4425326924449826 * (xx * (xx - 3 * yy) - yy * (3 * xx - yy))
+        components[..., 24] = 0.6258357354491761 * (xx * (xx - 3 * yy) - yy * (3 * xx - yy))
 
     return components
 
@@ -94,15 +101,15 @@ class Gaussians:
         cov: Covariance of multivariate Gaussian.
     """
 
-    mean: TensorType[..., "dim"]
-    cov: TensorType[..., "dim", "dim"]
+    mean: Float[Tensor, "*batch dim"]
+    cov: Float[Tensor, "*batch dim dim"]
 
 
 def compute_3d_gaussian(
-    directions: TensorType[..., 3],
-    means: TensorType[..., 3],
-    dir_variance: TensorType[..., 1],
-    radius_variance: TensorType[..., 1],
+    directions: Float[Tensor, "*batch 3"],
+    means: Float[Tensor, "*batch 3"],
+    dir_variance: Float[Tensor, "*batch 1"],
+    radius_variance: Float[Tensor, "*batch 1"],
 ) -> Gaussians:
     """Compute gaussian along ray.
 
@@ -127,11 +134,11 @@ def compute_3d_gaussian(
 
 
 def cylinder_to_gaussian(
-    origins: TensorType[..., 3],
-    directions: TensorType[..., 3],
-    starts: TensorType[..., 1],
-    ends: TensorType[..., 1],
-    radius: TensorType[..., 1],
+    origins: Float[Tensor, "*batch 3"],
+    directions: Float[Tensor, "*batch 3"],
+    starts: Float[Tensor, "*batch 1"],
+    ends: Float[Tensor, "*batch 1"],
+    radius: Float[Tensor, "*batch 1"],
 ) -> Gaussians:
     """Approximates cylinders with a Gaussian distributions.
 
@@ -152,11 +159,11 @@ def cylinder_to_gaussian(
 
 
 def conical_frustum_to_gaussian(
-    origins: TensorType[..., 3],
-    directions: TensorType[..., 3],
-    starts: TensorType[..., 1],
-    ends: TensorType[..., 1],
-    radius: TensorType[..., 1],
+    origins: Float[Tensor, "*batch 3"],
+    directions: Float[Tensor, "*batch 3"],
+    starts: Float[Tensor, "*batch 1"],
+    ends: Float[Tensor, "*batch 1"],
+    radius: Float[Tensor, "*batch 1"],
 ) -> Gaussians:
     """Approximates conical frustums with a Gaussian distributions.
 
@@ -190,11 +197,10 @@ def expected_sin(x_means: torch.Tensor, x_vars: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: The expected value of sin.
     """
-
     return torch.exp(-0.5 * x_vars) * torch.sin(x_means)
 
 
-@torch.jit.script
+# @torch_compile(dynamic=True, mode="reduce-overhead", backend="eager")
 def intersect_aabb(
     origins: torch.Tensor,
     directions: torch.Tensor,
@@ -219,11 +225,11 @@ def intersect_aabb(
     tx_min = (aabb[:3] - origins) / directions
     tx_max = (aabb[3:] - origins) / directions
 
-    t_min = torch.min(tx_min, tx_max)
-    t_max = torch.max(tx_min, tx_max)
+    t_min = torch.stack((tx_min, tx_max)).amin(dim=0)
+    t_max = torch.stack((tx_min, tx_max)).amax(dim=0)
 
-    t_min = torch.max(t_min, dim=-1).values
-    t_max = torch.min(t_max, dim=-1).values
+    t_min = t_min.amax(dim=-1)
+    t_max = t_max.amin(dim=-1)
 
     t_min = torch.clamp(t_min, min=0, max=max_bound)
     t_max = torch.clamp(t_max, min=0, max=max_bound)
@@ -235,10 +241,46 @@ def intersect_aabb(
     return t_min, t_max
 
 
+def intersect_obb(
+    origins: torch.Tensor,
+    directions: torch.Tensor,
+    obb: OrientedBox,
+    max_bound: float = 1e10,
+    invalid_value: float = 1e10,
+):
+    """
+    Ray intersection with an oriented bounding box (OBB)
+
+    Args:
+        origins: [N,3] tensor of 3d positions
+        directions: [N,3] tensor of normalized directions
+        R: [3,3] rotation matrix
+        T: [3] translation vector
+        S: [3] extents of the bounding box
+        max_bound: Maximum value of t_max
+        invalid_value: Value to return in case of no intersection
+    """
+    # Transform ray to OBB space
+    R, T, S = obb.R, obb.T, obb.S.to(origins.device)
+    H = torch.eye(4, device=origins.device, dtype=origins.dtype)
+    H[:3, :3] = R
+    H[:3, 3] = T
+    H_world2bbox = torch.inverse(H)
+    origins = torch.cat((origins, torch.ones_like(origins[..., :1])), dim=-1)
+    origins = torch.matmul(H_world2bbox, origins.T).T[..., :3]
+    directions = torch.matmul(H_world2bbox[:3, :3], directions.T).T
+
+    # Compute intersection with axis-aligned bounding box with min as -S and max as +S
+    aabb = torch.concat((-S / 2, S / 2))
+    t_min, t_max = intersect_aabb(origins, directions, aabb, max_bound=max_bound, invalid_value=invalid_value)
+
+    return t_min, t_max
+
+
 def safe_normalize(
-    vectors: TensorType["batch_dim":..., "N"],
+    vectors: Float[Tensor, "*batch_dim N"],
     eps: float = 1e-10,
-) -> TensorType["batch_dim":..., "N"]:
+) -> Float[Tensor, "*batch_dim N"]:
     """Normalizes vectors.
 
     Args:
@@ -252,8 +294,10 @@ def safe_normalize(
 
 
 def masked_reduction(
-    input_tensor: TensorType[1, 32, "mult"], mask: TensorType[1, 32, "mult"], reduction_type: Literal["image", "batch"]
-):
+    input_tensor: Float[Tensor, "1 32 mult"],
+    mask: Bool[Tensor, "1 32 mult"],
+    reduction_type: Literal["image", "batch"],
+) -> Tensor:
     """
     Whether to consolidate the input_tensor across the batch or across the image
     Args:
@@ -266,7 +310,9 @@ def masked_reduction(
     if reduction_type == "batch":
         # avoid division by 0 (if sum(M) = sum(sum(mask)) = 0: sum(image_loss) = 0)
         divisor = torch.sum(mask)
-        input_tensor = 0 if divisor == 0 else torch.sum(input_tensor) / divisor
+        if divisor == 0:
+            return torch.tensor(0, device=input_tensor.device)
+        input_tensor = torch.sum(input_tensor) / divisor
     elif reduction_type == "image":
         # avoid division by 0 (if M = sum(mask) = 0: image_loss = 0)
         valid = mask.nonzero()
@@ -277,7 +323,7 @@ def masked_reduction(
 
 
 def normalized_depth_scale_and_shift(
-    prediction: TensorType[1, 32, "mult"], target: TensorType[1, 32, "mult"], mask: TensorType[1, 32, "mult"]
+    prediction: Float[Tensor, "1 32 mult"], target: Float[Tensor, "1 32 mult"], mask: Bool[Tensor, "1 32 mult"]
 ):
     """
     More info here: https://arxiv.org/pdf/2206.00665.pdf supplementary section A2 Depth Consistency Loss
@@ -315,3 +361,160 @@ def normalized_depth_scale_and_shift(
     shift[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
 
     return scale, shift
+
+
+def columnwise_squared_l2_distance(
+    x: Float[Tensor, "*M N"],
+    y: Float[Tensor, "*M N"],
+) -> Float[Tensor, "N N"]:
+    """Compute the squared Euclidean distance between all pairs of columns.
+    Adapted from https://github.com/google-research/multinerf/blob/5b4d4f64608ec8077222c52fdf814d40acc10bc1/internal/geopoly.py
+
+    Args:
+        x: tensor of floats, with shape [M, N].
+        y: tensor of floats, with shape [M, N].
+    Returns:
+        sq_dist: tensor of floats, with shape [N, N].
+    """
+    # Use the fact that ||x - y||^2 == ||x||^2 + ||y||^2 - 2 x^T y.
+    sq_norm_x = torch.sum(x**2, 0)
+    sq_norm_y = torch.sum(y**2, 0)
+    sq_dist = sq_norm_x[:, None] + sq_norm_y[None, :] - 2 * x.T @ y
+    return sq_dist
+
+
+def _compute_tesselation_weights(v: int) -> Tensor:
+    """Tesselate the vertices of a triangle by a factor of `v`.
+    Adapted from https://github.com/google-research/multinerf/blob/5b4d4f64608ec8077222c52fdf814d40acc10bc1/internal/geopoly.py
+
+    Args:
+        v: int, the factor of the tesselation (v==1 is a no-op to the triangle).
+
+    Returns:
+        weights: tesselated weights.
+    """
+    if v < 1:
+        raise ValueError(f"v {v} must be >= 1")
+    int_weights = []
+    for i in range(v + 1):
+        for j in range(v + 1 - i):
+            int_weights.append((i, j, v - (i + j)))
+    int_weights = torch.FloatTensor(int_weights)
+    weights = int_weights / v  # Barycentric weights.
+    return weights
+
+
+def _tesselate_geodesic(
+    vertices: Float[Tensor, "N 3"], faces: Float[Tensor, "M 3"], v: int, eps: float = 1e-4
+) -> Tensor:
+    """Tesselate the vertices of a geodesic polyhedron.
+
+    Adapted from https://github.com/google-research/multinerf/blob/5b4d4f64608ec8077222c52fdf814d40acc10bc1/internal/geopoly.py
+
+    Args:
+        vertices: tensor of floats, the vertex coordinates of the geodesic.
+        faces: tensor of ints, the indices of the vertices of base_verts that
+            constitute eachface of the polyhedra.
+        v: int, the factor of the tesselation (v==1 is a no-op).
+        eps: float, a small value used to determine if two vertices are the same.
+
+    Returns:
+        verts: a tensor of floats, the coordinates of the tesselated vertices.
+    """
+    tri_weights = _compute_tesselation_weights(v)
+
+    verts = []
+    for face in faces:
+        new_verts = torch.matmul(tri_weights, vertices[face, :])
+        new_verts /= torch.sqrt(torch.sum(new_verts**2, 1, keepdim=True))
+        verts.append(new_verts)
+    verts = torch.concatenate(verts, 0)
+
+    sq_dist = columnwise_squared_l2_distance(verts.T, verts.T)
+    assignment = torch.tensor([torch.min(torch.argwhere(d <= eps)) for d in sq_dist])
+    unique = torch.unique(assignment)
+    verts = verts[unique, :]
+    return verts
+
+
+def generate_polyhedron_basis(
+    basis_shape: Literal["icosahedron", "octahedron"],
+    angular_tesselation: int,
+    remove_symmetries: bool = True,
+    eps: float = 1e-4,
+) -> Tensor:
+    """Generates a 3D basis by tesselating a geometric polyhedron.
+    Basis is used to construct Fourier features for positional encoding.
+    See Mip-Nerf360 paper: https://arxiv.org/abs/2111.12077
+    Adapted from https://github.com/google-research/multinerf/blob/5b4d4f64608ec8077222c52fdf814d40acc10bc1/internal/geopoly.py
+
+    Args:
+        base_shape: string, the name of the starting polyhedron, must be either
+            'icosahedron' or 'octahedron'.
+        angular_tesselation: int, the number of times to tesselate the polyhedron,
+            must be >= 1 (a value of 1 is a no-op to the polyhedron).
+        remove_symmetries: bool, if True then remove the symmetric basis columns,
+            which is usually a good idea because otherwise projections onto the basis
+            will have redundant negative copies of each other.
+        eps: float, a small number used to determine symmetries.
+
+    Returns:
+        basis: a matrix with shape [3, n].
+    """
+    if basis_shape == "icosahedron":
+        a = (math.sqrt(5) + 1) / 2
+        verts = torch.FloatTensor(
+            [
+                (-1, 0, a),
+                (1, 0, a),
+                (-1, 0, -a),
+                (1, 0, -a),
+                (0, a, 1),
+                (0, a, -1),
+                (0, -a, 1),
+                (0, -a, -1),
+                (a, 1, 0),
+                (-a, 1, 0),
+                (a, -1, 0),
+                (-a, -1, 0),
+            ]
+        ) / math.sqrt(a + 2)
+        faces = torch.tensor(
+            [
+                (0, 4, 1),
+                (0, 9, 4),
+                (9, 5, 4),
+                (4, 5, 8),
+                (4, 8, 1),
+                (8, 10, 1),
+                (8, 3, 10),
+                (5, 3, 8),
+                (5, 2, 3),
+                (2, 7, 3),
+                (7, 10, 3),
+                (7, 6, 10),
+                (7, 11, 6),
+                (11, 0, 6),
+                (0, 1, 6),
+                (6, 1, 10),
+                (9, 0, 11),
+                (9, 11, 2),
+                (9, 2, 5),
+                (7, 2, 11),
+            ]
+        )
+        verts = _tesselate_geodesic(verts, faces, angular_tesselation)
+    elif basis_shape == "octahedron":
+        verts = torch.FloatTensor([(0, 0, -1), (0, 0, 1), (0, -1, 0), (0, 1, 0), (-1, 0, 0), (1, 0, 0)])
+        corners = torch.FloatTensor(list(itertools.product([-1, 1], repeat=3)))
+        pairs = torch.argwhere(columnwise_squared_l2_distance(corners.T, verts.T) == 2)
+        faces, _ = torch.sort(torch.reshape(pairs[:, 1], [3, -1]).T, 1)
+        verts = _tesselate_geodesic(verts, faces, angular_tesselation)
+
+    if remove_symmetries:
+        # Remove elements of `verts` that are reflections of each other.
+        match = columnwise_squared_l2_distance(verts.T, -verts.T) < eps
+        verts = verts[torch.any(torch.triu(match), 1), :]
+
+    basis = verts.flip(-1)
+    return basis

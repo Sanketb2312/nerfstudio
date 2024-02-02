@@ -25,6 +25,7 @@ class Args:
     model: str
     input_data_dir: Path
     output_dir: Path
+    experiment_name: str
     use_camera_optimizer: bool = True
 
 
@@ -54,7 +55,7 @@ class ExperimentPipeline:
         self.input_data_dir = args.input_data_dir
         self.output_dir = args.output_dir
         self.model = args.model
-        self.experiment_name = experiment_name
+        self.experiment_name = args.experiment_name
         self.use_camera_optimizer = args.use_camera_optimizer
 
     def run(self):
@@ -97,7 +98,7 @@ class ExperimentPipeline:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
         output_name = f"{self.model}-{self.experiment_name}-{timestamp}"
-        cmd = f"ns-eval --load-config {config} --output-path {self.output_dir}/{output_name}.json --render-output-path {self.output_dir}/eval_images/"
+        cmd = f"ns-eval --load-config {config} --output-path {self.output_dir}/{output_name}.json"
         run_command(cmd, verbose=True)
     
     @my_timer("Render")
@@ -113,17 +114,17 @@ class ExperimentPipeline:
         render_dir.mkdir(parents=True, exist_ok=True)
         
         # ns-render --load-config outputs/data-images-exp_combined_baseline_2/nerfacto/2023-03-28_112618/config.yml --traj filename --camera-path-filename data/images/exp_combined_baseline_2/camera_paths/2023-03-28_112618.json --output-path renders/data/images/exp_combined_baseline_2/2023-03-28_112618.mp4
-        cmd = f"ns-render"
+        #cmd = f"ns-render"
         
-        if (interpolate):
-            render_path = render_dir / f"{output_name}_interpolate.mp4"
-            cmd += f" interpolate --load-config {config_path} --output-path {render_path}"
-        else:
-            render_path = render_dir / f"{output_name}.mp4"
-            camera_path_path = "./camera_paths/camera_path_one_lap.json"
-            cmd += f" camera-path --load-config {config_path} --camera-path-filename {camera_path_path} --output-path {render_path}"
+        #if (interpolate):
+            #render_path = render_dir / f"{output_name}_interpolate.mp4"
+            #cmd += f" interpolate --load-config {config_path} --output-path {render_path}"
+        #else:
+            #render_path = render_dir / f"{output_name}.mp4"
+            #camera_path_path = "./camera_paths/camera_path_one_lap.json"
+            #cmd += f" camera-path --load-config {config_path} --camera-path-filename {camera_path_path} --output-path {render_path}"
             
-        run_command(cmd, verbose=True)
+        #run_command(cmd, verbose=True)
 
 
 if __name__ == "__main__":
@@ -139,9 +140,10 @@ if __name__ == "__main__":
     input_data_dir = Path(args.input_data_dir)
     
     args = Args(
-        model="nerfacto",
+        model=args.model,
         input_data_dir=input_data_dir,
-        output_dir=input_data_dir,
+        output_dir=Path(args.output_dir),
+        experiment_name=args.experiment_name,
         use_camera_optimizer=args.use_camera_optimizer,
     )
     for run_dir in input_data_dir.iterdir():
@@ -149,12 +151,13 @@ if __name__ == "__main__":
             new_args = Args(
                 model=args.model,
                 input_data_dir=run_dir,
-                output_dir=run_dir,
+                output_dir=Path(args.output_dir),
+                experiment_name=args.experiment_name,
                 use_camera_optimizer=args.use_camera_optimizer,
             )
 
-            experiment_name = "-".join(str(run_dir).split("/")[-2:])
-            pipeline = ExperimentPipeline(new_args, writer, experiment_name)
+            #experiment_name = "-".join(str(run_dir).split("/")[-2:])
+            pipeline = ExperimentPipeline(new_args, writer, args.experiment_name)
             pipeline.run()
 
     terminal.close()
