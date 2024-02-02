@@ -376,8 +376,8 @@ class VanillaPipeline(Pipeline):
                 height, width = camera.height, camera.width
                 num_rays = height * width
                 metrics_dict, _ = self.model.get_image_metrics_and_images(outputs, batch)
-                if output_path is not None:
-                    raise NotImplementedError("Saving images is not implemented yet")
+                #if output_path is not None:
+                    #raise NotImplementedError("Saving images is not implemented yet")
 
                 assert "num_rays_per_sec" not in metrics_dict
                 metrics_dict["num_rays_per_sec"] = (num_rays / (time() - inner_start)).item()
