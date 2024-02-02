@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ from typing import Dict
 
 import numpy as np
 import torch
+from torch import Tensor
 
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.datasets.base_dataset import InputDataset
@@ -33,6 +34,8 @@ class SDFDataset(InputDataset):
         dataparser_outputs: description of where and how to read input images.
         scale_factor: The scaling factor for the dataparser outputs.
     """
+
+    exclude_batch_keys_from_device = InputDataset.exclude_batch_keys_from_device + ["depth", "normal"]
 
     def __init__(self, dataparser_outputs: DataparserOutputs, scale_factor: float = 1.0):
         super().__init__(dataparser_outputs, scale_factor)
@@ -62,7 +65,7 @@ class SDFDataset(InputDataset):
 
         return metadata
 
-    def get_depths_and_normals(self, depth_filepath: Path, normal_filename: Path, camtoworld: np.ndarray):
+    def get_depths_and_normals(self, depth_filepath: Path, normal_filename: Path, camtoworld: Tensor):
         """function to process additional depths and normal information
         Args:
             depth_filepath: path to depth file

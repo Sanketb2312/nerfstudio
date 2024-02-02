@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,12 +19,11 @@ import sys
 
 import tyro
 import yaml
-from rich.console import Console
 from rich.style import Style
 
-CONSOLE = Console(width=120)
+from nerfstudio.utils.rich_utils import CONSOLE
 
-LOCAL_TESTS = ["Run license checks", "Run isort", "Run Black", "Python Pylint", "Test with pytest"]
+LOCAL_TESTS = ["Run license checks", "Run Ruff Linter", "Run Ruff Formatter", "Run Pyright", "Test with pytest"]
 
 
 def run_command(command: str, continue_on_fail: bool = False) -> bool:
@@ -57,9 +56,14 @@ def run_github_actions_file(filename: str, continue_on_fail: bool = False):
 
     for step in steps:
         if "name" in step and step["name"] in LOCAL_TESTS:
-            compressed = step["run"].replace("\n", ";").replace("\\", "")
-            compressed = compressed.replace("--check", "")
-            curr_command = f"{compressed}"
+            curr_command = step["run"].replace("\n", ";").replace("\\", "")
+            if curr_command.startswith("ruff"):
+                if "ruff check" in curr_command:
+                    curr_command = f"{curr_command} --fix"
+
+                curr_command = curr_command.replace(" --check", "")
+                curr_command = curr_command.replace(" --diff", "")
+                curr_command = curr_command.replace(" --output-format=github", "")
 
             CONSOLE.line()
             CONSOLE.rule(f"[bold green]Running: {curr_command}")

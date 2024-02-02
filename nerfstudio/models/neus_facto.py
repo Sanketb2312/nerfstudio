@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,18 +27,11 @@ import torch
 from torch.nn import Parameter
 
 from nerfstudio.cameras.rays import RayBundle
-from nerfstudio.engine.callbacks import (
-    TrainingCallback,
-    TrainingCallbackAttributes,
-    TrainingCallbackLocation,
-)
+from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes, TrainingCallbackLocation
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.fields.density_fields import HashMLPDensityField
 from nerfstudio.model_components.losses import interlevel_loss
-from nerfstudio.model_components.ray_samplers import (
-    ProposalNetworkSampler,
-    UniformSampler,
-)
+from nerfstudio.model_components.ray_samplers import ProposalNetworkSampler, UniformSampler
 from nerfstudio.models.neus import NeuSModel, NeuSModelConfig
 from nerfstudio.utils import colormaps
 
@@ -48,7 +41,7 @@ class NeuSFactoModelConfig(NeuSModelConfig):
     """NeusFacto Model Config"""
 
     _target: Type = field(default_factory=lambda: NeuSFactoModel)
-    num_proposal_samples_per_ray: Tuple[int, int] = (256, 96)
+    num_proposal_samples_per_ray: Tuple[int, ...] = (256, 96)
     """Number of samples per ray for the proposal network."""
     num_neus_samples_per_ray: int = 48
     """Number of samples per ray for the nerf network."""
@@ -119,7 +112,8 @@ class NeuSFactoModel(NeuSModel):
             self.density_fns.extend([network.density_fn for network in self.proposal_networks])
 
         # update proposal network every iterations
-        update_schedule = lambda step: -1
+        def update_schedule(_):
+            return -1
 
         initial_sampler = UniformSampler(single_jitter=self.config.use_single_jitter)
         self.proposal_sampler = ProposalNetworkSampler(
@@ -149,7 +143,10 @@ class NeuSFactoModel(NeuSModel):
             def set_anneal(step: int):
                 # https://arxiv.org/pdf/2111.12077.pdf eq. 18
                 train_frac = np.clip(step / N, 0, 1)
-                bias = lambda x, b: (b * x) / ((b - 1) * x + 1)
+
+                def bias(x, b):
+                    return b * x / ((b - 1) * x + 1)
+
                 anneal = bias(train_frac, self.config.proposal_weights_anneal_slope)
                 self.proposal_sampler.set_anneal(anneal)
 

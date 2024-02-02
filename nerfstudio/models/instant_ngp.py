@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,26 +24,15 @@ from typing import Dict, List, Literal, Optional, Tuple, Type
 import nerfacc
 import torch
 from torch.nn import Parameter
-from torchmetrics import PeakSignalNoiseRatio
-from torchmetrics.functional import structural_similarity_index_measure
-from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 from nerfstudio.cameras.rays import RayBundle
-from nerfstudio.engine.callbacks import (
-    TrainingCallback,
-    TrainingCallbackAttributes,
-    TrainingCallbackLocation,
-)
+from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes, TrainingCallbackLocation
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
-from nerfstudio.fields.nerfacto_field import TCNNNerfactoField
-from nerfstudio.model_components.losses import MSELoss
+from nerfstudio.fields.nerfacto_field import NerfactoField
+from nerfstudio.model_components.losses import MSELoss, scale_gradients_by_distance_squared
 from nerfstudio.model_components.ray_samplers import VolumetricSampler
-from nerfstudio.model_components.renderers import (
-    AccumulationRenderer,
-    DepthRenderer,
-    RGBRenderer,
-)
+from nerfstudio.model_components.renderers import AccumulationRenderer, DepthRenderer, RGBRenderer
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps
 
@@ -78,6 +67,8 @@ class InstantNGPModelConfig(ModelConfig):
     """How far along ray to start sampling."""
     far_plane: float = 1e3
     """How far along ray to stop sampling."""
+    use_gradient_scaling: bool = False
+    """Use gradient scaler where the gradients are lower for points closer to the camera."""
     use_appearance_embedding: bool = False
     """Whether to use an appearance embedding."""
     background_color: Literal["random", "black", "white"] = "random"
@@ -94,7 +85,7 @@ class NGPModel(Model):
     """
 
     config: InstantNGPModelConfig
-    field: TCNNNerfactoField
+    field: NerfactoField
 
     def __init__(self, config: InstantNGPModelConfig, **kwargs) -> None:
         super().__init__(config=config, **kwargs)
@@ -108,8 +99,9 @@ class NGPModel(Model):
         else:
             scene_contraction = SceneContraction(order=float("inf"))
 
-        self.field = TCNNNerfactoField(
+        self.field = NerfactoField(
             aabb=self.scene_box.aabb,
+            appearance_embedding_dim=0 if self.config.use_appearance_embedding else 32,
             num_images=self.num_train_data,
             log2_hashmap_size=self.config.log2_hashmap_size,
             max_res=self.config.max_res,
@@ -143,6 +135,10 @@ class NGPModel(Model):
         self.rgb_loss = MSELoss()
 
         # metrics
+        from torchmetrics.functional import structural_similarity_index_measure
+        from torchmetrics.image import PeakSignalNoiseRatio
+        from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
         self.ssim = structural_similarity_index_measure
         self.lpips = LearnedPerceptualImagePatchSimilarity(normalize=True)
@@ -186,6 +182,8 @@ class NGPModel(Model):
             )
 
         field_outputs = self.field(ray_samples)
+        if self.config.use_gradient_scaling:
+            field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
 
         # accumulation
         packed_info = nerfacc.pack_info(ray_indices, num_rays)
@@ -218,14 +216,20 @@ class NGPModel(Model):
 
     def get_metrics_dict(self, outputs, batch):
         image = batch["image"].to(self.device)
+        image = self.renderer_rgb.blend_background(image)
         metrics_dict = {}
         metrics_dict["psnr"] = self.psnr(outputs["rgb"], image)
         metrics_dict["num_samples_per_batch"] = outputs["num_samples_per_ray"].sum()
         return metrics_dict
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
-        image = batch["image"].to(self.device)
-        rgb_loss = self.rgb_loss(image, outputs["rgb"])
+        image = batch["image"][..., :3].to(self.device)
+        pred_rgb, image = self.renderer_rgb.blend_background_for_loss_computation(
+            pred_image=outputs["rgb"],
+            pred_accumulation=outputs["accumulation"],
+            gt_image=image,
+        )
+        rgb_loss = self.rgb_loss(image, pred_rgb)
         loss_dict = {"rgb_loss": rgb_loss}
         return loss_dict
 
@@ -233,6 +237,7 @@ class NGPModel(Model):
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         image = batch["image"].to(self.device)
+        image = self.renderer_rgb.blend_background(image)
         rgb = outputs["rgb"]
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(

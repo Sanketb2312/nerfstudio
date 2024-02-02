@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,19 +20,12 @@ from pathlib import Path
 from typing import Type
 
 import torch
-from rich.console import Console
 
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import Cameras, CameraType
-from nerfstudio.data.dataparsers.base_dataparser import (
-    DataParser,
-    DataParserConfig,
-    DataparserOutputs,
-)
+from nerfstudio.data.dataparsers.base_dataparser import DataParser, DataParserConfig, DataparserOutputs
 from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.utils.io import load_from_json
-
-CONSOLE = Console()
 
 
 @dataclass
@@ -45,6 +38,8 @@ class SDFStudioDataParserConfig(DataParserConfig):
     """Directory specifying location of data."""
     include_mono_prior: bool = False
     """whether or not to load monocular depth and normal """
+    depth_unit_scale_factor: float = 1e-3
+    """Scales the depth values to meters. Default value is 0.001 for a millimeter to meter conversion."""
     include_foreground_mask: bool = False
     """whether or not to load foreground mask"""
     downscale_factor: int = 1
@@ -64,7 +59,7 @@ class SDFStudio(DataParser):
 
     config: SDFStudioDataParserConfig
 
-    def _generate_dataparser_outputs(self, split="train"):  # pylint: disable=unused-argument,too-many-statements
+    def _generate_dataparser_outputs(self, split="train"):
         # load meta data
         meta = load_from_json(self.config.data / "meta_data.json")
 
@@ -87,16 +82,17 @@ class SDFStudio(DataParser):
                 continue
 
             image_filename = self.config.data / frame["rgb_path"]
-            depth_filename = self.config.data / frame["mono_depth_path"]
-            normal_filename = self.config.data / frame["mono_normal_path"]
+            depth_filename = frame.get("mono_depth_path")
+            normal_filename = frame.get("mono_normal_path")
 
             intrinsics = torch.tensor(frame["intrinsics"])
             camtoworld = torch.tensor(frame["camtoworld"])
 
             # append data
             image_filenames.append(image_filename)
-            depth_filenames.append(depth_filename)
-            normal_filenames.append(normal_filename)
+            if depth_filename is not None and normal_filename is not None:
+                depth_filenames.append(self.config.data / depth_filename)
+                normal_filenames.append(self.config.data / normal_filename)
             fx.append(intrinsics[0, 0])
             fy.append(intrinsics[1, 1])
             cx.append(intrinsics[0, 2])
@@ -155,6 +151,7 @@ class SDFStudio(DataParser):
                 # required for normal maps, these are in colmap format so they require c2w before conversion
                 "camera_to_worlds": c2w_colmap if len(c2w_colmap) > 0 else None,
                 "include_mono_prior": self.config.include_mono_prior,
+                "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
             },
         )
         return dataparser_outputs

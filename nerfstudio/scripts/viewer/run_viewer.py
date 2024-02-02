@@ -1,4 +1,4 @@
-# Copyright 2022 The Nerfstudio Team. All rights reserved.
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,18 +21,17 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field, fields
 from pathlib import Path
+from typing import Literal
 
 import tyro
-from rich.console import Console
 
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.pipelines.base_pipeline import Pipeline
 from nerfstudio.utils import writer
 from nerfstudio.utils.eval_utils import eval_setup
-from nerfstudio.viewer.server.viewer_state import ViewerState
-
-CONSOLE = Console(width=120)
+from nerfstudio.viewer.viewer import Viewer as ViewerState
+from nerfstudio.viewer_legacy.server.viewer_state import ViewerLegacyState
 
 
 @dataclass
@@ -54,6 +53,8 @@ class RunViewer:
     """Path to config YAML file."""
     viewer: ViewerConfigWithoutNumRays = field(default_factory=ViewerConfigWithoutNumRays)
     """Viewer configuration"""
+    vis: Literal["viewer", "viewer_legacy"] = "viewer"
+    """Type of viewer"""
 
     def main(self) -> None:
         """Main function."""
@@ -64,7 +65,7 @@ class RunViewer:
         )
         num_rays_per_chunk = config.viewer.num_rays_per_chunk
         assert self.viewer.num_rays_per_chunk == -1
-        config.vis = "viewer"
+        config.vis = self.vis
         config.viewer = self.viewer.as_viewer_config()
         config.viewer.num_rays_per_chunk = num_rays_per_chunk
 
@@ -86,13 +87,25 @@ def _start_viewer(config: TrainerConfig, pipeline: Pipeline, step: int):
     """
     base_dir = config.get_base_dir()
     viewer_log_path = base_dir / config.viewer.relative_log_filename
-    viewer_state = ViewerState(
-        config.viewer,
-        log_filename=viewer_log_path,
-        datapath=pipeline.datamanager.get_datapath(),
-        pipeline=pipeline,
-    )
-    banner_messages = [f"Viewer at: {viewer_state.viewer_url}"]
+    banner_messages = None
+    viewer_state = None
+    if config.vis == "viewer_legacy":
+        viewer_state = ViewerLegacyState(
+            config.viewer,
+            log_filename=viewer_log_path,
+            datapath=pipeline.datamanager.get_datapath(),
+            pipeline=pipeline,
+        )
+        banner_messages = [f"Legacy viewer at: {viewer_state.viewer_url}"]
+    if config.vis == "viewer":
+        viewer_state = ViewerState(
+            config.viewer,
+            log_filename=viewer_log_path,
+            datapath=pipeline.datamanager.get_datapath(),
+            pipeline=pipeline,
+            share=config.viewer.make_share_url,
+        )
+        banner_messages = viewer_state.viewer_info
 
     # We don't need logging, but writer.GLOBAL_BUFFER needs to be populated
     config.logging.local_writer.enable = False
@@ -100,10 +113,12 @@ def _start_viewer(config: TrainerConfig, pipeline: Pipeline, step: int):
 
     assert viewer_state and pipeline.datamanager.train_dataset
     viewer_state.init_scene(
-        dataset=pipeline.datamanager.train_dataset,
+        train_dataset=pipeline.datamanager.train_dataset,
         train_state="completed",
+        eval_dataset=pipeline.datamanager.eval_dataset,
     )
-    viewer_state.viser_server.set_training_state("completed")
+    if isinstance(viewer_state, ViewerLegacyState):
+        viewer_state.viser_server.set_training_state("completed")
     viewer_state.update_scene(step=step)
     while True:
         time.sleep(0.01)
@@ -112,11 +127,11 @@ def _start_viewer(config: TrainerConfig, pipeline: Pipeline, step: int):
 def entrypoint():
     """Entrypoint for use with pyproject scripts."""
     tyro.extras.set_accent_color("bright_yellow")
-    tyro.cli(RunViewer).main()
+    tyro.cli(tyro.conf.FlagConversionOff[RunViewer]).main()
 
 
 if __name__ == "__main__":
     entrypoint()
 
 # For sphinx docs
-get_parser_fn = lambda: tyro.extras.get_parser(RunViewer)  # noqa
+get_parser_fn = lambda: tyro.extras.get_parser(tyro.conf.FlagConversionOff[RunViewer])  # noqa
