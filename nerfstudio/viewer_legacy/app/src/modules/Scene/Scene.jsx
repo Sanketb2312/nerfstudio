@@ -95,9 +95,11 @@ export function get_scene_tree() {
   camera_controls.saveState();
 
   const keyMap = [];
-  const moveSpeed = 0.005;
+  //const moveSpeed = 0.005;
+  const moveSpeed = 0.99
   const upRotSpeed = 0.04;
-  const sideRotSpeed = .01;
+  //const sideRotSpeed = .01;
+  const sideRotSpeed = 20000
   const EPS = 0.005;
 
 
@@ -149,7 +151,7 @@ export function get_scene_tree() {
   }
 
   function translate() {
-    if (keyMap.KeyD === true) {
+    if (keyMap.keyA === true) {
       camera_controls.truck(moveSpeed, 0, {enableTransition:true});
     }
     if (keyMap.KeyA === true) {

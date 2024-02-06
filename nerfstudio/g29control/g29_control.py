@@ -11,6 +11,7 @@ import requests
 #import keyboard
 #from pynput import keyboard
 import subprocess
+import evdev
 print(sys.executable)
 
 #pip.main(["install", "pynput"])
@@ -21,6 +22,14 @@ from nerfstudio.cameras.camera_utils import auto_orient_and_center_poses, viewma
 from nerfstudio.viewer.viewer_elements import ViewerClick
 import keyboard
 
+
+import pynput
+from pynput.keyboard import Key, Controller
+import time
+
+keyboard = Controller()
+
+# Initialize pygame for joystick input
 
 # url = "http://0.0.0.0:7007/"
 
@@ -72,39 +81,38 @@ def joy_callback(data):
     triangle = data.buttons[3]
     circle = data.buttons[2]
     x = data.buttons[0]
-    if sqaure == 1:
-        keyboard.press_and_release('w')
-    elif circle == 1:
-        # Simulate pressing and releasing the "s" key
-        keyboard.press_and_release('s')
+    mapping(sqaure, triangle, circle, x, steering, acceleration_pedal, break_pedal)
 
 
 
+def mapping(sqaure, triangle, circle, x, steering, acceleration_pedal, break_pedal):
+    while acceleration_pedal > -1:
+        if acceleration_pedal == -1:
+            keyboard.release('w')
+            break
+        keyboard.press('w')
+        time.sleep(0.2)
 
+    if triangle == 1:
+        keyboard.press('a')
 
-def mapping(data):
-    pass
-
-
-    # if steering > 0.5:
-    #     print("Call nerfstudio function to right arrow")
-    #     ViewerClick(data.axes[0], data.axes[2], data.axes[3])
-
-    # if steering < 0.5:
-    #     print("Call nerfstudio function to left arrow")    
+    elif triangle == 0:
+        keyboard.release('a')
     
-    # if break_pedal > 0:
-    #     print("make it press d")
+    if circle == 1:
+        keyboard.press('d')
 
-    # if acceleration_pedal > 0:
-    #     print("make it press w (but increase value in increasing pdeal)")
+    elif circle == 0:
+        keyboard.release('d')
+
+    if x == 1:
+        keyboard.press('s')
+    if x == 0:
+        keyboard.release('s')
+    
 
 
 
-def on_button_press(button):
-    if button == 3:  # Assuming button 0 corresponds to the "W" key
-    # Simulate typing the letter "w" using xdotool
-        subprocess.call(['xdotool', 'type', 'w'])
 
 
 
