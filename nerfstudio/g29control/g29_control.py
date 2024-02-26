@@ -10,16 +10,10 @@ from codecs import decode
 import requests
 #import keyboard
 #from pynput import keyboard
-import subprocess
-import evdev
 print(sys.executable)
 
 #pip.main(["install", "pynput"])
-from nerfstudio.utils.scripts import run_command
-from nerfstudio.process_data.metashape_utils import metashape_to_json
-from nerfstudio.cameras.camera_paths import get_interpolated_camera_path
-from nerfstudio.cameras.camera_utils import auto_orient_and_center_poses, viewmatrix
-from nerfstudio.viewer.viewer_elements import ViewerClick
+
 import keyboard
 
 
@@ -59,9 +53,13 @@ sqaure = None
 triangle = None
 circle = None
 x = None
+left = None
+right = None
+accelerator_pressed = False
 
 
 def joy_callback(data):
+    global accelerator_pressed
     print("Received Joy message:")
     print("Header:", data.header)
     print("Axes:", data.axes)
@@ -74,6 +72,7 @@ def joy_callback(data):
     print("button: ", data.buttons[2])
 
 
+
     steering = data.axes[0]
     break_pedal = data.axes[3]
     acceleration_pedal = data.axes[2]
@@ -81,34 +80,88 @@ def joy_callback(data):
     triangle = data.buttons[3]
     circle = data.buttons[2]
     x = data.buttons[0]
-    mapping(sqaure, triangle, circle, x, steering, acceleration_pedal, break_pedal)
+    side_movement = data.axes[4]
+    right = data.axes[5]
 
-
-
-def mapping(sqaure, triangle, circle, x, steering, acceleration_pedal, break_pedal):
-    while acceleration_pedal > -1:
-        if acceleration_pedal == -1:
-            keyboard.release('w')
-            break
+    if acceleration_pedal > -1:
         keyboard.press('w')
-        time.sleep(0.2)
+        accelerator_pressed = True
 
-    if triangle == 1:
+        # Sleep for 1ms
+        #time.sleep(0.001)
+
+        # Release 'w'
+        #keyboard.release('w')
+        accelerator_pressed = False
+
+    if accelerator_pressed:
+        # Fully release 'w'
+        keyboard.release('w')
+        accelerator_pressed = False
+
+    mapping(sqaure, triangle, circle, x, steering, acceleration_pedal, break_pedal, side_movement)
+
+
+
+def mapping(sqaure, triangle, circle, x, steering, acceleration_pedal, break_pedal, side_movement):
+    prev_time = time.localtime().tm_sec
+    if acceleration_pedal > -1:
+        keyboard.press('w')
+        #accelerator_pressed = True
+
+        # Sleep for 1ms
+        #time.sleep(0.001)
+
+        # Release 'w'
+        keyboard.release('w')
+        #accelerator_pressed = False
+
+    # if accelerator_pressed:
+    #     # Fully release 'w'
+    #     keyboard.release('w')
+    #     accelerator_pressed = False
+
+    if steering > 0.025:
         keyboard.press('a')
-
-    elif triangle == 0:
-        keyboard.release('a')
+        keyboard.press(Key.right)
     
-    if circle == 1:
+    if -0.025 < steering < 0.025:
+        keyboard.release('a')
+        keyboard.release('d')
+        keyboard.release(Key.right)
+        keyboard.release(Key.left)
+
+    if steering < -0.025:
+        keyboard.press('d')
+        keyboard.press(Key.left)
+    
+    if side_movement == -1:
+        keyboard.press('a')
+    
+    if side_movement == 1:
         keyboard.press('d')
 
-    elif circle == 0:
+    if side_movement == 0:
+        keyboard.release('a')
         keyboard.release('d')
 
-    if x == 1:
-        keyboard.press('s')
-    if x == 0:
-        keyboard.release('s')
+
+    #triangle == 1:
+    #     keyboard.press('a')
+
+    # elif triangle == 0:
+    #     keyboard.release('a')
+    
+    # if circle == 1:
+    #     keyboard.press('d')
+
+    # elif circle == 0:
+    #     keyboard.release('d')
+
+    # if x == 1:
+    #     keyboard.press('s')
+    # if x == 0:
+    #     keyboard.release('s')
     
 
 
