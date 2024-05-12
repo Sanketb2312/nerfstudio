@@ -31,6 +31,10 @@ import viser
 import viser.transforms as tf
 
 from nerfstudio.viewer.control_panel import ControlPanel
+import os,sys
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(CURRENT_DIR))
+from nerfstudio.viewer.loadmodel import load_model, model_prediction
 
 
 @dataclasses.dataclass
@@ -202,6 +206,7 @@ class CameraPath:
                 assert camera_edit_panel is not None
                 camera_edit_panel.remove()
                 self._camera_edit_panel = None
+        
 
         self._keyframes[keyframe_index] = (keyframe, frustum_handle)
 
@@ -252,9 +257,11 @@ class CameraPath:
         return np.clip(interpolator(time), 0, spline_indices[-1])
 
     def interpolate_pose_and_fov_rad(self, normalized_t: float) -> Optional[Tuple[tf.SE3, float]]:
+        print(self._keyframes)
+        print(len(self._keyframes))
         if len(self._keyframes) < 2:
             return None
-
+        print("not none")
         self._fov_spline = splines.KochanekBartels(
             [
                 keyframe[0].override_fov_rad if keyframe[0].override_fov_enabled else self.default_fov
@@ -267,12 +274,18 @@ class CameraPath:
         assert self._orientation_spline is not None
         assert self._position_spline is not None
         assert self._fov_spline is not None
+        print(self._orientation_spline, "orien")
+        print(self._position_spline, "position")
+        print(self._fov_spline, "fov")
         max_t = self.compute_duration()
         t = max_t * normalized_t
-        spline_t = float(self.spline_t_from_t_sec(np.array(t)))
-
+        print(t)
+        t = np.array(0.0)
+        spline_t = float(self.spline_t_from_t_sec(t))
+        print("spøine", spline_t)
         quat = self._orientation_spline.evaluate(spline_t)
-        assert isinstance(quat, splines.quaternion.UnitQuaternion)
+        #quat = self._orientation_spline
+        #assert isinstance(quat, splines.quaternion.UnitQuaternion)
         return (
             tf.SE3.from_rotation_and_translation(
                 tf.SO3(np.array([quat.scalar, *quat.vector])),
@@ -459,7 +472,8 @@ class RenderTabState:
     preview_aspect: float
     preview_camera_type: Literal["Perspective", "Fisheye", "Equirectangular"]
 
-
+def add_keyframes(self, keyframes):
+    self._keyframes = keyframes
 def populate_render_tab(
     server: viser.ViserServer,
     config_path: Path,
@@ -521,6 +535,181 @@ def populate_render_tab(
         icon=viser.Icon.PLUS,
         hint="Add a new keyframe at the current pose.",
     )
+
+
+    eval_button = server.add_gui_button(
+        "Start evaluation",
+        icon=viser.Icon.BRAND_KICKSTARTER,
+        hint="Start evaluation process",
+    )
+
+    @eval_button.on_click
+    def _(event: viser.GuiEvent) -> None:
+ 
+        assert event.client_id is not None
+        camera = server.get_clients()[event.client_id].camera
+        print(camera)
+
+        assert event.client_id is not None
+        camera = server.get_clients()[event.client_id].camera
+
+
+        framerate_number = server.add_gui_number("FPS", min=0.1, max=240.0, step=1e-2, initial_value=30.0)
+        render_tab_state.preview_render = False
+        duration_number = server.add_gui_number(
+            "Duration (sec)",
+            min=0.0,
+            max=1e8,
+            step=0.001,
+            initial_value=0.0,
+            disabled=True,
+        )
+
+        assert event.client is not None
+        #num_frames = int(framerate_number.value * duration_number.value)
+        num_frames = 10
+        json_data = {}
+ 
+        model = load_model("waypoints", 5)
+        predictions = model_prediction(model, "hfh")
+        keyframes = []
+        print(1)
+        for i in range(5):
+            print(2)
+            pred=predictions[0:4]
+            print(3)
+            keyframe = Keyframe(camera.position ,pred, False, 0.0,0.0, False, None)
+            print(10*"-")
+            print(keyframe)
+            print(10*"-")
+            print(4)
+            pose = tf.SE3.from_rotation_and_translation(
+                tf.SO3(keyframe.wxyz) @ tf.SO3.from_x_radians(np.pi),
+                keyframe.position / VISER_NERFSTUDIO_SCALE_RATIO,
+            )
+            print(10*"-")
+            print(pose)
+            print(10*"-")
+            keyframes.append(
+                {
+                     "matrix": pose.as_matrix().flatten().tolist(),
+                     "fov": np.rad2deg(keyframe.override_fov_rad)
+                     if keyframe.override_fov_enabled
+                     else fov_degrees.value,
+                     "aspect": keyframe.aspect,
+                     "override_transition_enabled": keyframe.override_transition_enabled,
+                     "override_transition_sec": keyframe.override_transition_sec,
+                }
+            )
+
+            camera_path._keyframes[i] = (keyframe, viser.CameraFrustumHandle)
+            camera_path._orientation_spline = splines.quaternion.KochanekBartels
+            camera_path._position_spline = splines.KochanekBartels
+            camera_path._fov_spline = splines.KochanekBartels
+            print(keyframes)
+            print(20*"-")
+            
+        # for keyframe, dummy in camera_path._keyframes.values():
+        #     pose = tf.SE3.from_rotation_and_translation(
+        #         tf.SO3(keyframe.wxyz) @ tf.SO3.from_x_radians(np.pi),
+        #         keyframe.position / VISER_NERFSTUDIO_SCALE_RATIO,
+        #     )
+            # keyframes.append(
+            #     {
+            #         "matrix": pose.as_matrix().flatten().tolist(),
+            #         "fov": np.rad2deg(keyframe.override_fov_rad)
+            #         if keyframe.override_fov_enabled
+            #         else fov_degrees.value,
+            #         "aspect": keyframe.aspect,
+            #         "override_transition_enabled": keyframe.override_transition_enabled,
+            #         "override_transition_sec": keyframe.override_transition_sec,
+            #     }
+            # )
+        json_data["default_fov"] = fov_degrees.value
+        json_data["default_transition_sec"] = transition_sec_number.value
+        json_data["keyframes"] = keyframes
+        json_data["camera_type"] = camera_type.value.lower()
+        json_data["render_height"] = resolution.value[1]
+        json_data["render_width"] = resolution.value[0]
+        json_data["fps"] = framerate_number.value
+        json_data["seconds"] = duration_number.value
+        json_data["is_cycle"] = loop.value
+        json_data["smoothness_value"] = tension_slider.value
+        # now populate the camera path:
+        camera_path_list = []
+        print(20*"-")
+        print(num_frames)
+        print(20*"-")
+        for i in range(num_frames):
+            print("inside")
+            
+            maybe_pose_and_fov = camera_path.interpolate_pose_and_fov_rad(i / num_frames)
+            if maybe_pose_and_fov is None:
+                return
+            print("through")
+            pose, fov = maybe_pose_and_fov
+            # rotate the axis of the camera 180 about x axis
+            pose = tf.SE3.from_rotation_and_translation(
+                pose.rotation() @ tf.SO3.from_x_radians(np.pi),
+                pose.translation() / VISER_NERFSTUDIO_SCALE_RATIO,
+            )
+            camera_path_list.append(
+                {
+                    "camera_to_world": pose.as_matrix().flatten().tolist(),
+                    "fov": np.rad2deg(fov),
+                    "aspect": resolution.value[0] / resolution.value[1],
+                }
+            )
+        json_data["camera_path"] = camera_path_list
+        # finally add crop data if crop is enabled
+        if control_panel is not None:
+            if control_panel.crop_viewport:
+                obb = control_panel.crop_obb
+                rpy = tf.SO3.from_matrix(obb.R.numpy()).as_rpy_radians()
+                color = control_panel.background_color
+                json_data["crop"] = {
+                    "crop_center": obb.T.tolist(),
+                    "crop_scale": obb.S.tolist(),
+                    "crop_rot": [rpy.roll, rpy.pitch, rpy.yaw],
+                    "crop_bg_color": {"r": color[0], "g": color[1], "b": color[2]},
+                }
+
+        # now write the json file
+        json_outfile = datapath / "camera_paths" / f"{render_name_text.value}.json"
+        json_outfile.parent.mkdir(parents=True, exist_ok=True)
+        with open(json_outfile.absolute(), "w") as outfile:
+            json.dump(json_data, outfile)
+        # now show the command
+        print(json_data)
+        with event.client.add_gui_modal("Render Command") as modal:
+            dataname = datapath.name
+            command = " ".join(
+                [
+                    "ns-render camera-path",
+                    f"--load-config {config_path}",
+                    f"--camera-path-filename {json_outfile.absolute()}",
+                    f"--output-path renders/{dataname}/{render_name_text.value}.mp4",
+                ]
+            )
+            event.client.add_gui_markdown(
+                "\n".join(
+                    [
+                        "To render the trajectory, run the following from the command line:",
+                        "",
+                        "```",
+                        command,
+                        "```",
+                    ]
+                )
+            )
+            close_button = event.client.add_gui_button("Close")
+
+            @close_button.on_click
+            def _(_) -> None:
+                modal.close()
+        
+        print("Complete")
+    
 
     @add_button.on_click
     def _(event: viser.GuiEvent) -> None:
@@ -954,6 +1143,7 @@ def populate_render_tab(
         assert event.client is not None
         num_frames = int(framerate_number.value * duration_number.value)
         json_data = {}
+        print(1)
         # json data has the properties:
         # keyframes: list of keyframes with
         #     matrix : flattened 4x4 matrix
@@ -1037,6 +1227,7 @@ def populate_render_tab(
         with open(json_outfile.absolute(), "w") as outfile:
             json.dump(json_data, outfile)
         # now show the command
+        print(json_data)
         with event.client.add_gui_modal("Render Command") as modal:
             dataname = datapath.name
             command = " ".join(
@@ -1067,7 +1258,7 @@ def populate_render_tab(
     camera_path = CameraPath(server, duration_number)
     camera_path.default_fov = fov_degrees.value / 180.0 * np.pi
     camera_path.default_transition_sec = transition_sec_number.value
-
+    print(render_tab_state)
     return render_tab_state
 
 
@@ -1079,3 +1270,4 @@ if __name__ == "__main__":
     )
     while True:
         time.sleep(10.0)
+

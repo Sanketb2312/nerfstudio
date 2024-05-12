@@ -242,3 +242,17 @@ class ColmapConverterToNerfstudioDataset(BaseConverterToNerfstudioDataset):
 
         if self.crop_bottom > 0.0:
             self.crop_factor = (0.0, self.crop_bottom, 0.0, 0.0)
+    def main(self) -> None:
+        # Implement your conversion logic here
+        pass
+output_dir = Path("/cluster/projects/vc/data/ad/closed/NAP-data/sanket/Trip76Glos/")
+data_path = Path("/cluster/projects/vc/data/ad/closed/NAP-data/sanket/Trip76Glos/transforms")
+print(2)
+# Create an instance of ColmapConverterToNerfstudioDataset
+converter = ColmapConverterToNerfstudioDataset(data=data_path, output_dir=output_dir)
+print(3)
+# Call the _save_transforms method
+transforms_summary = converter._save_transforms(598)
+print(4)
+# You can print or use the summary returned by _save_transforms method
+print(transforms_summary)
